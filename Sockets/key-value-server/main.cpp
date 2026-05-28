@@ -1,16 +1,16 @@
-#include <arpa/inet.h>
 #include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
-#include <unordered_map>
-#include <netinet/in.h>
 #include <optional>
 #include <sstream>
 #include <string>
-#include <sys/socket.h>
-#include <unistd.h>
+#include <unordered_map>
 #include <vector>
+#include <unistd.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
 
 struct Command {
     std::string name{};
@@ -112,6 +112,7 @@ std::string handleCommand(const Command& command,
         const std::string& key{command.args[0]};
         const std::string& value{command.args[1]};
 
+        // Associate the key with the value in the store.
         store[key] = value;
         return "OK\n";
     }
@@ -122,12 +123,14 @@ std::string handleCommand(const Command& command,
         }
 
         const std::string& key{command.args[0]};
+        // Attempt to find the key in the map.
         auto it{store.find(key)};
 
         if (it == store.end()) {
             return "NOT_FOUND\n";
         }
 
+        // it->first is the key; it->second is the value.
         return "VALUE " + it->second + "\n";
     }
 
@@ -137,6 +140,7 @@ std::string handleCommand(const Command& command,
         }
 
         const std::string& key{command.args[0]};
+        // erase() returns the number of keys that were removed.
         std::size_t removed{store.erase(key)};
 
         if (removed == 0) {
