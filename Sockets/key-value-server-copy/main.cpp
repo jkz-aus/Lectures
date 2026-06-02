@@ -163,6 +163,8 @@ std::string handleCommand(const Command& command,
         if (!command.args.empty()) {
             return "ERROR QUIT takes no arguments\n";
         }
+        return "BYE\n";
+    }
 
     if (command.name == "EXISTS") {
         if (command.args.size() != 1) {
@@ -174,7 +176,7 @@ std::string handleCommand(const Command& command,
         //if key does not exist then return "false"
         if (it == store.end()) {
             return "false\n";
-            }
+        }
         //if key exists then return "true"
         else {
             return "true\n";
@@ -215,9 +217,6 @@ std::string handleCommand(const Command& command,
 
         output += "]\n";
         return output;
-        }
-
-        return "BYE\n";
     }
 
     return "ERROR unknown command\n";
