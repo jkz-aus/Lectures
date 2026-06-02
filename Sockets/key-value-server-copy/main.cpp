@@ -184,7 +184,8 @@ std::string handleCommand(const Command& command,
         if (!command.args.empty()) {
             return "ERROR CLEAR takes no arguments\n";
         }
-        //
+        store.clear();
+        return "OK\n";
     }
 
 
