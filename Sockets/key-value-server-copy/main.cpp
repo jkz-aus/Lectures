@@ -167,14 +167,24 @@ std::string handleCommand(const Command& command,
         if (command.args.size() != 1) {
             return "ERROR EXISTS requires key\n";
         }
-        //logic
+
+        const std::string& key{command.args[0]};
+        auto it(store.find(key));
+        //if key does not exist then return "false"
+        if (it == store.end()) {
+            return "false\n";
+            }
+        //if key exists then return "true"
+        else {
+            return "true\n";
+        }
     }
 
     if (command.name == "CLEAR") {
         if (!command.args.empty()) {
             return "ERROR CLEAR takes no arguments\n";
         }
-        //logic
+        //
     }
 
 
