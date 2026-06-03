@@ -7,6 +7,8 @@
 #include <unistd.h>
 #include <chrono>
 #include <format>
+#include <thread>
+#include <mutex>
 
 namespace {
     constexpr int PORT{9090};
@@ -92,9 +94,6 @@ void handleClient(int client_fd) {
 
         close_socket(client_fd);
     }
-
-
-
 }
 
 int main() {
@@ -131,34 +130,40 @@ int main() {
 
         std::cout << "Server listening on port " << PORT << "...\n";
 
-        // Initialize a second socket to use when responding to a client.
-        sockaddr_in client_addr{};
-        socklen_t client_len{sizeof(client_addr)};
+        while (true) {
+            // Initialize a second socket to use when responding to a client.
+            sockaddr_in client_addr{};
+            socklen_t client_len{sizeof(client_addr)};
 
-        // Accept the incoming request, and initialize the response socket.
-        // This will block the process until a client connects.
-        int client_fd{accept(
-            server_fd,
-            reinterpret_cast<sockaddr*>(&client_addr),
-            &client_len
-        )};
+            // Accept the incoming request, and initialize the response socket.
+            // This will block the process until a client connects.
+            int client_fd{accept(
+                server_fd,
+                reinterpret_cast<sockaddr*>(&client_addr),
+                &client_len
+            )};
 
-        if (client_fd < 0) {
-            close_socket(server_fd);
-            fail("accept failed");
+            if (client_fd < 0) {
+                close_socket(server_fd);
+                fail("accept failed");
+            }
+
+            char client_ip[INET_ADDRSTRLEN]{};
+            inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
+
+            std::cout << "Client connected from "
+                      << client_ip << ":"
+                      << ntohs(client_addr.sin_port)
+                      << "\n";
+
+            //handleClient(client_fd);
+            std::thread clientThread{handleClient, client_fd};
+            clientThread.detach();
         }
-
-        char client_ip[INET_ADDRSTRLEN]{};
-        inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
-
-        std::cout << "Client connected from "
-                  << client_ip << ":"
-                  << ntohs(client_addr.sin_port)
-                  << "\n";
-
 
         close_socket(server_fd);
     }
+
     catch (const std::exception& ex) {
         std::cerr << "Server error: " << ex.what() << "\n";
         return 1;
