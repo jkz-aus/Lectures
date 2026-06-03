@@ -77,6 +77,7 @@ std::optional<std::vector<std::uint8_t>> readMessage(int fd) {
     if (!readExact(fd, &networkLength, sizeof(networkLength))) {
         return std::nullopt;
     }
+    // Convert length from network order to local host order.
     const std::uint32_t length{ntohl(networkLength)};
     if (length == 0) {
         return std::nullopt;
