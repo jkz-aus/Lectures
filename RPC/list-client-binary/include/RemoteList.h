@@ -1,12 +1,12 @@
-#ifndef REMOTE_LIST_H
-#define REMOTE_LIST_H
-
-#include "remote_list_stub.h"
+#pragma once
+#include "RemoteListStub.h"
 #include <memory>
 #include <optional>
 #include <string>
 #include <vector>
 
+// Abstracts a list of strings, which secretly communicates with a list-server-binary instance
+// where the real list is stored.
 class RemoteList {
 public:
     explicit RemoteList(const std::string& host = "127.0.0.1", int port = 9090);
@@ -29,11 +29,10 @@ public:
     bool isConnected() const;
 
 private:
-    std::unique_ptr<RemoteListStub> stub_;
+    RemoteListStub m_stub;
 
     bool sendStatusCommand(RequestOpcode opcode, const std::vector<std::uint8_t>& arguments = {});
     std::optional<std::string> sendValueCommand(RequestOpcode opcode,
                                                 const std::vector<std::uint8_t>& arguments = {});
 };
 
-#endif // REMOTE_LIST_H

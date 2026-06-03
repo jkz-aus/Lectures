@@ -1,8 +1,9 @@
-#include "request_handlers.h"
-
+#include "RequestHandlers.h"
+#include "ResponseHandlers.h"
 #include <utility>
 
 std::vector<std::uint8_t> handlePushRequest(MessageReader& reader, SharedStore& store) {
+    // Push: 1 string argument.
     std::optional<std::string> value{reader.readString()};
     if (!value.has_value() || !reader.isAtEnd()) {
         return buildErrorResponse("PUSH requires value");
@@ -171,35 +172,4 @@ std::vector<std::uint8_t> handleQuitRequest(MessageReader& reader, SharedStore&)
     }
 
     return buildStatusResponse(ResponseOpcode::Bye);
-}
-
-std::vector<std::uint8_t> handleRequest(RequestOpcode opcode,
-                                        const std::vector<std::uint8_t>& arguments,
-                                        SharedStore& store) {
-    MessageReader reader{arguments};
-
-    switch (opcode) {
-        case RequestOpcode::Push:
-            return handlePushRequest(reader, store);
-        case RequestOpcode::Pop:
-            return handlePopRequest(reader, store);
-        case RequestOpcode::Insert:
-            return handleInsertRequest(reader, store);
-        case RequestOpcode::Remove:
-            return handleRemoveRequest(reader, store);
-        case RequestOpcode::Count:
-            return handleCountRequest(reader, store);
-        case RequestOpcode::Get:
-            return handleGetRequest(reader, store);
-        case RequestOpcode::Set:
-            return handleSetRequest(reader, store);
-        case RequestOpcode::Swap:
-            return handleSwapRequest(reader, store);
-        case RequestOpcode::Clear:
-            return handleClearRequest(reader, store);
-        case RequestOpcode::Quit:
-            return handleQuitRequest(reader, store);
-    }
-
-    return buildErrorResponse("unknown opcode");
 }

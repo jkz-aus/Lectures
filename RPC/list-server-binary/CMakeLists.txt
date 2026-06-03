@@ -7,5 +7,6 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 add_executable(list_server_binary
     src/main.cpp
-    src/request_handlers.cpp
+    src/RequestHandlers.cpp
+    src/ResponseHandlers.cpp
 )

@@ -1,4 +1,7 @@
-#include "request_handlers.h"
+#include "RequestHandlers.h"
+#include "ResponseHandlers.h"
+#include "SharedStore.h"
+#include "MessageReader.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
@@ -13,6 +16,11 @@
 #include <unistd.h>
 #include <utility>
 #include <vector>
+
+std::vector<std::uint8_t> handleRequest(RequestOpcode opcode,
+                                        MessageReader& reader,
+                                        SharedStore& store);
+
 
 void closeSocket(int fd) {
     if (fd >= 0) {
@@ -36,10 +44,15 @@ bool sendAll(int fd, const std::vector<std::uint8_t>& message) {
     return true;
 }
 
+// Reads exactly "byteCount" bytes from the given socket descriptor, and writes them
+// to the given buffer.
 bool readExact(int fd, void* buffer, std::size_t byteCount) {
+    // Cast the buffer to a char* so we can store one byte at a time.
     auto* out{reinterpret_cast<char*>(buffer)};
     std::size_t totalRead{0};
 
+    // Keep reading into the buffer (via the "out" pointer) until we have
+    // received the expected number of bytes.
     while (totalRead < byteCount) {
         ssize_t bytesRead{recv(fd, out + totalRead, byteCount - totalRead, 0)};
         if (bytesRead <= 0) {
@@ -52,17 +65,24 @@ bool readExact(int fd, void* buffer, std::size_t byteCount) {
     return true;
 }
 
+// The application protocol for this server defines a message as being a sequence of
+// at least 5 bytes:
+// byte 0-3: the number of bytes in the message payload, which follows the first 4 bytes.
+// byte 4:   a 1-byte opcode.
+// byte 5+:  optional arguments appropriate to the opcode.
+// This function returns the payload of a message received on the given socket.
 std::optional<std::vector<std::uint8_t>> readMessage(int fd) {
+    // Read the payload length.
     std::uint32_t networkLength{};
     if (!readExact(fd, &networkLength, sizeof(networkLength))) {
         return std::nullopt;
     }
-
     const std::uint32_t length{ntohl(networkLength)};
     if (length == 0) {
         return std::nullopt;
     }
 
+    // Copy "length" bytes from the socket into this vector of bytes.
     std::vector<std::uint8_t> payload(length);
     if (!readExact(fd, payload.data(), payload.size())) {
         return std::nullopt;
@@ -71,64 +91,55 @@ std::optional<std::vector<std::uint8_t>> readMessage(int fd) {
     return payload;
 }
 
-bool appendInt32(std::vector<std::uint8_t>& payload, std::int32_t value) {
-    const std::uint32_t networkValue{htonl(static_cast<std::uint32_t>(value))};
-    const auto* bytes{reinterpret_cast<const std::uint8_t*>(&networkValue)};
-    payload.insert(payload.end(), bytes, bytes + sizeof(networkValue));
-    return true;
-}
-
-bool appendString(std::vector<std::uint8_t>& payload, const std::string& value) {
-    if (value.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-        return false;
+// Handles the given opcode request, validating arguments from the given
+// MessageReader, and mutating the given SharedStore. Returns a binary message
+// payload to respond to the client.
+std::vector<std::uint8_t> handleRequest(RequestOpcode opcode,
+                                        MessageReader& reader,
+                                        SharedStore& store) {
+    switch (opcode) {
+        case RequestOpcode::Push:
+            return handlePushRequest(reader, store);
+        case RequestOpcode::Pop:
+            return handlePopRequest(reader, store);
+        case RequestOpcode::Insert:
+            return handleInsertRequest(reader, store);
+        case RequestOpcode::Remove:
+            return handleRemoveRequest(reader, store);
+        case RequestOpcode::Count:
+            return handleCountRequest(reader, store);
+        case RequestOpcode::Get:
+            return handleGetRequest(reader, store);
+        case RequestOpcode::Set:
+            return handleSetRequest(reader, store);
+        case RequestOpcode::Swap:
+            return handleSwapRequest(reader, store);
+        case RequestOpcode::Clear:
+            return handleClearRequest(reader, store);
+        case RequestOpcode::Quit:
+            return handleQuitRequest(reader, store);
     }
 
-    appendInt32(payload, static_cast<std::int32_t>(value.size()));
-    payload.insert(payload.end(), value.begin(), value.end());
-    return true;
+    return buildErrorResponse("unknown opcode");
 }
 
-std::vector<std::uint8_t> buildMessage(ResponseOpcode opcode) {
-    return {static_cast<std::uint8_t>(opcode)};
-}
-
-std::vector<std::uint8_t> buildStatusResponse(ResponseOpcode opcode) {
-    return buildMessage(opcode);
-}
-
-std::vector<std::uint8_t> buildErrorResponse(const std::string& error) {
-    std::vector<std::uint8_t> payload{static_cast<std::uint8_t>(ResponseOpcode::Error)};
-    appendString(payload, error);
-    return payload;
-}
-
-std::vector<std::uint8_t> buildValueResponse(const std::string& value) {
-    std::vector<std::uint8_t> payload{static_cast<std::uint8_t>(ResponseOpcode::Value)};
-    appendString(payload, value);
-    return payload;
-}
-
-std::vector<std::uint8_t> buildCountResponse(std::size_t count) {
-    if (count > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-        return buildErrorResponse("count overflow");
-    }
-
-    std::vector<std::uint8_t> payload{static_cast<std::uint8_t>(ResponseOpcode::Count)};
-    appendInt32(payload, static_cast<std::int32_t>(count));
-    return payload;
-}
-
-std::vector<std::uint8_t> frameMessage(const std::vector<std::uint8_t>& payload) {
+// Frame a payload of bytes as a network message, prefixed with the payload's length
+std::vector<std::uint8_t> frameResponse(const std::vector<std::uint8_t>& payload) {
     std::vector<std::uint8_t> framed{};
+    // Reserve enough space in the new buffer.
     framed.reserve(sizeof(std::uint32_t) + payload.size());
 
+    // Encode the length of the payload.
     const std::uint32_t networkLength{htonl(static_cast<std::uint32_t>(payload.size()))};
     const auto* lengthBytes{reinterpret_cast<const std::uint8_t*>(&networkLength)};
+    // Copy the length to the buffer.
     framed.insert(framed.end(), lengthBytes, lengthBytes + sizeof(networkLength));
+    // Copy the payload to the buffer.
     framed.insert(framed.end(), payload.begin(), payload.end());
     return framed;
 }
 
+// Convenient debugging method. I wish C++ could do this on its own.
 std::string opcodeName(RequestOpcode opcode) {
     switch (opcode) {
         case RequestOpcode::Push:
@@ -158,6 +169,8 @@ std::string opcodeName(RequestOpcode opcode) {
 
 void handleClient(int clientFd, SharedStore& store) {
     while (true) {
+        // Read a message from the client,
+        // to receive back a buffer of bytes from the message payload.
         std::optional<std::vector<std::uint8_t>> payload{readMessage(clientFd)};
         if (!payload.has_value()) {
             std::cout << "Client disconnected\n";
@@ -168,16 +181,17 @@ void handleClient(int clientFd, SharedStore& store) {
             std::cout << "Received empty payload\n";
             break;
         }
+        MessageReader reader{payload.value(), 0};
+        // Retrieve the opcode from the payload.
+        const auto opcodeValue{reader.readByte()};
+        const auto opcode{static_cast<RequestOpcode>(opcodeValue.value())};
 
-        const auto opcodeValue{payload->front()};
-        const auto opcode{static_cast<RequestOpcode>(opcodeValue)};
-        std::vector<std::uint8_t> arguments{payload->begin() + 1, payload->end()};
-        std::vector<std::uint8_t> response{handleRequest(opcode, arguments, store)};
+        std::vector<std::uint8_t> response{handleRequest(opcode, reader, store)};
 
         std::cout << "request opcode: " << opcodeName(opcode)
-                  << " (" << static_cast<int>(opcodeValue) << ")\n";
+                  << " (" << static_cast<int>(opcodeValue.value()) << ")\n";
 
-        if (!sendAll(clientFd, frameMessage(response))) {
+        if (!sendAll(clientFd, frameResponse(response))) {
             std::cout << "Failed to send response\n";
             break;
         }
@@ -233,6 +247,7 @@ int main() {
 
     std::cout << "Binary list server listening on port " << PORT << '\n';
 
+    // As before, accept a connection on the socket, then spawn a thread to handle the client.
     while (true) {
         sockaddr_in clientAddr{};
         socklen_t clientLen{sizeof(clientAddr)};

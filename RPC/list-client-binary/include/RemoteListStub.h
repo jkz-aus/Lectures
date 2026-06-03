@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 
+// A helper class for sending requests and getting back responses from a server.
 class RemoteListStub {
 public:
     RemoteListStub(const std::string& host, int port);

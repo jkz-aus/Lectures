@@ -1,14 +1,14 @@
-#include "remote_list.h"
+#include "RemoteList.h"
 #include "types.h"
 
 #include <limits>
 
 RemoteList::RemoteList(const std::string& host, int port)
-    : stub_(std::make_unique<RemoteListStub>(host, port)) {
+    : m_stub{host, port} {
 }
 
 bool RemoteList::sendStatusCommand(RequestOpcode opcode, const std::vector<std::uint8_t>& arguments) {
-    auto response = stub_->sendRequest(opcode, arguments);
+    auto response = m_stub.sendRequest(opcode, arguments);
     if (!response.has_value()) {
         return false;
     }
@@ -18,7 +18,7 @@ bool RemoteList::sendStatusCommand(RequestOpcode opcode, const std::vector<std::
 
 std::optional<std::string> RemoteList::sendValueCommand(RequestOpcode opcode,
                                                         const std::vector<std::uint8_t>& arguments) {
-    auto response = stub_->sendRequest(opcode, arguments);
+    auto response = m_stub.sendRequest(opcode, arguments);
     if (!response.has_value()) {
         return std::nullopt;
     }
@@ -26,16 +26,22 @@ std::optional<std::string> RemoteList::sendValueCommand(RequestOpcode opcode,
     return parseValueResponse(response.value());
 }
 
+// START HERE: to push a string into the list, we send a message with a Push opcode
+// and the string argument. Since PUSH responds with OK if the push succeeds,
+// we parse that response as a bool value and return it.
 bool RemoteList::push(const std::string& value) {
+    // Encode the bytes of the string argument, including its length.
     std::vector<std::uint8_t> arguments{};
     if (!appendString(arguments, value)) {
         return false;
     }
 
+    // Send and parse a PUSH command, expecting to receive back an OK ("Status") response.
     return sendStatusCommand(RequestOpcode::Push, arguments);
 }
 
 std::optional<std::string> RemoteList::pop() {
+    // Send and parse a POP command, expecting to receive back a string VALUE response.
     return sendValueCommand(RequestOpcode::Pop);
 }
 
@@ -64,7 +70,7 @@ std::optional<std::string> RemoteList::remove(std::size_t index) {
 }
 
 std::optional<std::size_t> RemoteList::count() {
-    auto response = stub_->sendRequest(RequestOpcode::Count, {});
+    auto response = m_stub.sendRequest(RequestOpcode::Count, {});
     if (!response.has_value()) {
         return std::nullopt;
     }
@@ -113,5 +119,5 @@ bool RemoteList::clear() {
 }
 
 bool RemoteList::isConnected() const {
-    return stub_ && stub_->isConnected();
+    return m_stub.isConnected();
 }

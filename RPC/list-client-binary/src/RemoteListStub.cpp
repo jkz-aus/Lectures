@@ -1,5 +1,5 @@
-#include "remote_list_stub.h"
-#include "socket_utils.h"
+#include "RemoteListStub.h"
+#include "SocketUtils.h"
 #include "types.h"
 
 #include <stdexcept>
@@ -16,6 +16,8 @@ RemoteListStub::~RemoteListStub() {
     socket_fd_ = -1;
 }
 
+// Sends a request for the given opcode and arguments, by framing the request according to the
+// application protocol.
 std::optional<BinaryResponse> RemoteListStub::sendRequest(RequestOpcode opcode,
                                                           const std::vector<std::uint8_t>& arguments) {
     if (!isConnected()) {

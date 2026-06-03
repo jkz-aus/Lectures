@@ -33,14 +33,6 @@ struct BinaryResponse {
     std::vector<std::uint8_t> payload;
 };
 
-struct BinaryReader {
-    const std::vector<std::uint8_t>& buffer;
-    std::size_t offset{0};
-
-    std::optional<std::int32_t> readInt32();
-    std::optional<std::string> readString();
-    bool isAtEnd() const;
-};
 
 bool appendInt32(std::vector<std::uint8_t>& payload, std::int32_t value);
 bool appendString(std::vector<std::uint8_t>& payload, const std::string& value);
