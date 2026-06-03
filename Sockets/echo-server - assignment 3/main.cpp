@@ -14,6 +14,7 @@ namespace {
     constexpr int PORT{9090};
     constexpr int BACKLOG{5};
     constexpr int BUFFER_SIZE{1024};
+    constexpr int MAX_CLIENTS{3};
 
     void close_socket(int fd) {
         if (fd >= 0) {
@@ -25,9 +26,13 @@ namespace {
         throw std::runtime_error{message + ": " + std::strerror(errno)};
     }
 
-void handleClient(int client_fd) {
-        char buffer[BUFFER_SIZE]{};
-
+void handleClient(int client_fd, int& client_count, std::mutex& client_mutex) {char buffer[BUFFER_SIZE]{};
+        {
+            //lock
+            std::lock_guard<std::mutex> lock{client_mutex};
+            //increment
+            client_count++;
+        }
         while (true) {
             // Receive up to BUFFER_SIZE-1 bytes from the client.
             ssize_t bytes_received{recv(client_fd, buffer, BUFFER_SIZE - 1, 0)};
@@ -70,6 +75,11 @@ void handleClient(int client_fd) {
                 output = "Available operations: ECHO, TIME, HELP, QUIT\n";
             }
 
+            else if (message.substr (0,7) == "CLIENTS") {
+                std::lock_guard<std::mutex> lock{client_mutex};
+                output = "CLIENTS: " + std::to_string(client_count) + "\n";
+            }
+
             else if (message.substr(0,4) == "QUIT") {
                 output = "GOODBYE\n"; //outputs GOODBYE
             }
@@ -90,6 +100,13 @@ void handleClient(int client_fd) {
             if (message.substr (0,4) == "QUIT") {
                 break;
             }
+        }
+
+        {
+            //lock
+            std::lock_guard<std::mutex> lock{client_mutex};
+            //decrement
+            client_count--;
         }
 
         close_socket(client_fd);
@@ -130,6 +147,9 @@ int main() {
 
         std::cout << "Server listening on port " << PORT << "...\n";
 
+        int client_count = 0;
+        std::mutex client_mutex{};
+
         while (true) {
             // Initialize a second socket to use when responding to a client.
             sockaddr_in client_addr{};
@@ -148,6 +168,16 @@ int main() {
                 fail("accept failed");
             }
 
+            {
+                std::lock_guard<std::mutex> lock{client_mutex};
+                if (client_count >= MAX_CLIENTS) {
+                    std::string error{"ERROR too many clients\n"};
+                    send(client_fd, error.c_str(), error.size(), 0);
+                    close_socket(client_fd);
+                    continue;
+                }
+            }
+
             char client_ip[INET_ADDRSTRLEN]{};
             inet_ntop(AF_INET, &client_addr.sin_addr, client_ip, sizeof(client_ip));
 
@@ -157,7 +187,7 @@ int main() {
                       << "\n";
 
             //handleClient(client_fd);
-            std::thread clientThread{handleClient, client_fd};
+            std::thread clientThread{handleClient, client_fd, std::ref(client_count), std::ref(client_mutex)};
             clientThread.detach();
         }
 
