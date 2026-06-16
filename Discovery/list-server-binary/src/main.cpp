@@ -21,6 +21,15 @@
 #include <utility>
 #include <vector>
 
+std::optional<std::vector<std::uint8_t>> readMessage(int fd);
+bool sendAll(int fd, const std::vector<std::uint8_t>& message);
+void closeSocket(int fd) {
+    if (fd >= 0) {
+        close(fd);
+    }
+}
+
+
 std::vector<std::uint8_t> handleRequest(RequestOpcode opcode,
                                         MessageReader& reader,
                                         SharedStore& store);
@@ -248,12 +257,6 @@ bool registerWithNameServer(const std::string& nameServerHost,
 
 }
 
-
-void closeSocket(int fd) {
-    if (fd >= 0) {
-        close(fd);
-    }
-}
 
 bool sendAll(int fd, const std::vector<std::uint8_t>& message) {
     const auto* data{reinterpret_cast<const char*>(message.data())};
