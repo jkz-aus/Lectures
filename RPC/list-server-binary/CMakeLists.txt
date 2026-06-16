@@ -9,4 +9,5 @@ add_executable(list_server_binary
     src/main.cpp
     src/RequestHandlers.cpp
     src/ResponseHandlers.cpp
+        src/demo.cpp
 )

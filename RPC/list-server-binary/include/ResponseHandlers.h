@@ -1,6 +1,7 @@
 #pragma once
 #include <vector>
 #include <string>
+#include <cstdint>
 #include <limits>
 
 enum class ResponseOpcode : std::uint8_t {

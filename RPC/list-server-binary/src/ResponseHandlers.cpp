@@ -36,7 +36,7 @@ std::vector<std::uint8_t> buildErrorResponse(const std::string& error) {
     return payload;
 }
 
-// Builds a payloat for a VALUE response.
+// Builds a payload for a VALUE response.
 std::vector<std::uint8_t> buildValueResponse(const std::string& value) {
     std::vector<std::uint8_t> payload{static_cast<std::uint8_t>(ResponseOpcode::Value)};
     appendString(payload, value);
