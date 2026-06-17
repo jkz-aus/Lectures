@@ -3,6 +3,7 @@
 #include <string>
 #include <cstdint>
 #include <limits>
+#include "Messaging.h"
 
 enum class ResponseOpcode : std::uint8_t {
     Ok = 0x40,

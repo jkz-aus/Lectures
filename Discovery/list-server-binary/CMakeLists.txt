@@ -10,4 +10,8 @@ add_executable(list_server_binary
     src/RequestHandlers.cpp
     src/ResponseHandlers.cpp
         src/demo.cpp
+        include/NameServerHandlers.h
+        src/NameServerHandlers.cpp
+        include/Messaging.h
+        src/Messaging.cpp
 )

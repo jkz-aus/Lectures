@@ -2,12 +2,12 @@
 #include "ResponseHandlers.h"
 #include "SharedStore.h"
 #include "MessageReader.h"
+#include "Messaging.h"
 
 #include <arpa/inet.h>
 #include <cerrno>
 #include <cstdlib>
 #include <iostream>
-#include <limits>
 #include <netinet/in.h>
 #include <functional>
 #include <optional>
@@ -18,8 +18,9 @@
 #include <atomic>
 #include <system_error>
 #include <charconv>
-#include <utility>
 #include <vector>
+
+#include "NameServerHandlers.h"
 
 std::optional<std::vector<std::uint8_t>> readMessage(int fd);
 bool sendAll(int fd, const std::vector<std::uint8_t>& message);
@@ -27,76 +28,6 @@ void closeSocket(int fd) {
     if (fd >= 0) {
         close(fd);
     }
-}
-
-
-std::vector<std::uint8_t> handleRequest(RequestOpcode opcode,
-                                        MessageReader& reader,
-                                        SharedStore& store);
-
-namespace {
-
-enum class NameServerRequestOpcode : std::uint8_t {
-    Register = 0x01
-};
-
-enum class NameServerResponseOpcode : std::uint8_t {
-    Ok = 0x40,
-    ClientId = 0x44,
-    Error = 0x7F
-};
-
-struct BinaryResponse {
-    NameServerResponseOpcode opcode;
-    std::vector<std::uint8_t> payload;
-};
-
-bool appendInt32(std::vector<std::uint8_t>& payload, std::int32_t value) {
-    const std::uint32_t networkValue{htonl(static_cast<std::uint32_t>(value))};
-    const auto* bytes{reinterpret_cast<const std::uint8_t*>(&networkValue)};
-    payload.insert(payload.end(), bytes, bytes + sizeof(networkValue));
-    return true;
-}
-
-bool appendString(std::vector<std::uint8_t>& payload, const std::string& value) {
-    if (value.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-        return false;
-    }
-
-    appendInt32(payload, static_cast<std::int32_t>(value.size()));
-    payload.insert(payload.end(), value.begin(), value.end());
-    return true;
-}
-
-std::vector<std::uint8_t> frameNameServerRequest(std::int32_t clientId,
-                                                 std::int32_t messageId,
-                                                 NameServerRequestOpcode opcode,
-                                                 const std::vector<std::uint8_t>& arguments) {
-    std::vector<std::uint8_t> framed{};
-    const std::uint32_t payloadSize{
-        static_cast<std::uint32_t>((2 * sizeof(std::int32_t)) + sizeof(std::uint8_t) + arguments.size())
-    };
-    const std::uint32_t networkLength{htonl(payloadSize)};
-    const auto* lengthBytes{reinterpret_cast<const std::uint8_t*>(&networkLength)};
-
-    framed.reserve(sizeof(networkLength) + payloadSize);
-    framed.insert(framed.end(), lengthBytes, lengthBytes + sizeof(networkLength));
-    appendInt32(framed, clientId);
-    appendInt32(framed, messageId);
-    framed.push_back(static_cast<std::uint8_t>(opcode));
-    framed.insert(framed.end(), arguments.begin(), arguments.end());
-    return framed;
-}
-
-std::optional<BinaryResponse> parseNameServerResponse(const std::vector<std::uint8_t>& message) {
-    if (message.empty()) {
-        return std::nullopt;
-    }
-
-    return BinaryResponse{
-        static_cast<NameServerResponseOpcode>(message.front()),
-        std::vector<std::uint8_t>(message.begin() + 1, message.end())
-    };
 }
 
 int connectToServer(const std::string& host, int port) {
@@ -168,93 +99,83 @@ bool registerWithNameServer(const std::string& nameServerHost,
         return false;
     }
 
-    const auto closeNameServerSocket = [&]() {
-        closeSocket(fd);
-        fd = -1;
-    };
-
     std::optional<std::string> localIp{getLocalIpAddress(fd)};
     if (!localIp.has_value()) {
         std::cerr << "Failed to determine local service address for registration\n";
-        closeNameServerSocket();
+        closeSocket(fd);
         return false;
     }
 
     std::optional<std::vector<std::uint8_t>> handshakeMessage{readMessage(fd)};
     if (!handshakeMessage.has_value()) {
         std::cerr << "Failed to receive name server handshake\n";
-        closeNameServerSocket();
+        closeSocket(fd);
         return false;
     }
 
-    std::optional<BinaryResponse> handshake{parseNameServerResponse(handshakeMessage.value())};
-    if (!handshake.has_value() || handshake->opcode != NameServerResponseOpcode::ClientId) {
+    MessageReader handshakeReader{handshakeMessage.value(), 0};
+    const auto opcodeValue{handshakeReader.readByte()};
+    if (!opcodeValue.has_value()) {
+        std::cerr << "Name server handshake response missing opcode\n";
+        closeSocket(fd);
+        return false;
+    }
+
+    const auto opcode{static_cast<NameServerResponseOpcode>(opcodeValue.value())};
+    if (opcode != NameServerResponseOpcode::ClientId) {
         std::cerr << "Invalid name server handshake response\n";
-        closeNameServerSocket();
+        closeSocket(fd);
         return false;
     }
 
-    MessageReader handshakeReader{handshake->payload, 0};
     std::optional<std::int32_t> clientId{handshakeReader.readInt32()};
     if (!clientId.has_value() || !handshakeReader.isAtEnd()) {
         std::cerr << "Malformed client ID from name server\n";
-        closeNameServerSocket();
+        closeSocket(fd);
         return false;
     }
 
-    std::vector<std::uint8_t> arguments{};
-    if (!appendString(arguments, serviceName)
-        || !appendString(arguments, providerId)
-        || !appendString(arguments, localIp.value())) {
-        std::cerr << "Failed to encode name server registration request\n";
-        closeNameServerSocket();
-        return false;
-    }
-    appendInt32(arguments, servicePort);
-
-    const std::vector<std::uint8_t> request{
-        frameNameServerRequest(clientId.value(), 1, NameServerRequestOpcode::Register, arguments)
+    const std::vector<std::uint8_t> registerPayload{
+        buildRegisterRequest(serviceName, providerId, localIp.value(), servicePort)
     };
-    if (!sendAll(fd, request)) {
+    if (!sendAll(fd, frameSuppressibleMessage(clientId.value(), 1, registerPayload))) {
         std::cerr << "Failed to send registration request to name server\n";
-        closeNameServerSocket();
+        closeSocket(fd);
         return false;
     }
 
     std::optional<std::vector<std::uint8_t>> responseMessage{readMessage(fd)};
     if (!responseMessage.has_value()) {
         std::cerr << "Failed to receive registration response from name server\n";
-        closeNameServerSocket();
+        closeSocket(fd);
+        return false;
+    }
+    MessageReader registerReader{responseMessage.value(), 0};
+    const auto registerOpcodeValue{registerReader.readByte()};
+    if (!registerOpcodeValue.has_value()) {
+        std::cerr << "Registration response missing opcode\n";
+        closeSocket(fd);
         return false;
     }
 
-    std::optional<BinaryResponse> response{parseNameServerResponse(responseMessage.value())};
-    if (!response.has_value()) {
-        std::cerr << "Malformed registration response from name server\n";
-        closeNameServerSocket();
-        return false;
-    }
-
-    if (response->opcode == NameServerResponseOpcode::Ok) {
-        closeNameServerSocket();
+    const auto registerOpcode{static_cast<NameServerResponseOpcode>(registerOpcodeValue.value())};
+    if (registerOpcode == NameServerResponseOpcode::Ok) {
+        closeSocket(fd);
         return true;
     }
 
-    if (response->opcode == NameServerResponseOpcode::Error) {
-        MessageReader errorReader{response->payload, 0};
-        std::optional<std::string> errorMessage{errorReader.readString()};
+    if (registerOpcode == NameServerResponseOpcode::Error) {
+        std::optional<std::string> errorMessage{registerReader.readString()};
         std::cerr << "Name server rejected registration: "
                   << (errorMessage.has_value() ? errorMessage.value() : "unknown error")
                   << '\n';
-        closeNameServerSocket();
+        closeSocket(fd);
         return false;
     }
 
     std::cerr << "Unexpected registration response from name server\n";
-    closeNameServerSocket();
+    closeSocket(fd);
     return false;
-}
-
 }
 
 
@@ -354,21 +275,6 @@ std::vector<std::uint8_t> handleRequest(RequestOpcode opcode,
     return buildErrorResponse("unknown opcode");
 }
 
-// Frame a payload of bytes as a network message, prefixed with the payload's length
-std::vector<std::uint8_t> frameResponse(const std::vector<std::uint8_t>& payload) {
-    std::vector<std::uint8_t> framed{};
-    // Reserve enough space in the new buffer.
-    framed.reserve(sizeof(std::uint32_t) + payload.size());
-
-    // Encode the length of the payload.
-    const std::uint32_t networkLength{htonl(static_cast<std::uint32_t>(payload.size()))};
-    const auto* lengthBytes{reinterpret_cast<const std::uint8_t*>(&networkLength)};
-    // Copy the length to the buffer.
-    framed.insert(framed.end(), lengthBytes, lengthBytes + sizeof(networkLength));
-    // Copy the payload to the buffer.
-    framed.insert(framed.end(), payload.begin(), payload.end());
-    return framed;
-}
 
 // Convenient debugging method. I wish C++ could do this on its own.
 std::string opcodeName(RequestOpcode opcode) {
@@ -402,7 +308,7 @@ void handleClient(int clientFd, std::int32_t clientId, SharedStore& store) {
     std::int32_t lastMessage{0};
     std::vector<std::uint8_t> lastResponsePayload;
 
-    if (!sendAll(clientFd, frameResponse(buildClientIdResponse(clientId)))) {
+    if (!sendAll(clientFd, frameResponseMessage(buildClientIdResponse(clientId)))) {
         closeSocket(clientFd);
         return;
     }
@@ -425,17 +331,17 @@ void handleClient(int clientFd, std::int32_t clientId, SharedStore& store) {
         std::optional<std::int32_t> requestClientId{reader.readInt32()};
         std::optional<std::int32_t> messageId{reader.readInt32()};
         if (!requestClientId.has_value() || !messageId.has_value()) {
-            sendAll(clientFd, frameResponse(buildErrorResponse("missing clientId or messageId")));
+            sendAll(clientFd, frameResponseMessage(buildErrorResponse("missing clientId or messageId")));
             break;
         }
 
         if (requestClientId.value() != clientId) {
-            sendAll(clientFd, frameResponse(buildErrorResponse("invalid clientId")));
+            sendAll(clientFd, frameResponseMessage(buildErrorResponse("invalid clientId")));
             break;
         }
 
         if (lastMessage == messageId.value()) {
-            sendAll(clientFd, frameResponse(lastResponsePayload));
+            sendAll(clientFd, frameResponseMessage(lastResponsePayload));
             continue;
         }
 
@@ -443,7 +349,7 @@ void handleClient(int clientFd, std::int32_t clientId, SharedStore& store) {
         // Retrieve the opcode from the payload.
         const auto opcodeValue{reader.readByte()};
         if (!opcodeValue.has_value()) {
-            sendAll(clientFd, frameResponse(buildErrorResponse("missing opcode")));
+            sendAll(clientFd, frameResponseMessage(buildErrorResponse("missing opcode")));
             break;
         }
         const auto opcode{static_cast<RequestOpcode>(opcodeValue.value())};
@@ -453,7 +359,7 @@ void handleClient(int clientFd, std::int32_t clientId, SharedStore& store) {
         std::cout << "request opcode: " << opcodeName(opcode)
                   << " (" << static_cast<int>(opcodeValue.value()) << ")\n";
 
-        if (!sendAll(clientFd, frameResponse(response))) {
+        if (!sendAll(clientFd, frameResponseMessage(response))) {
             std::cout << "Failed to send response\n";
             break;
         }

@@ -1,29 +1,6 @@
 #include "ResponseHandlers.h"
 #include <arpa/inet.h>
 
-// Encode a 4-byte integer in network order and append it to a byte buffer.
-bool appendInt32(std::vector<std::uint8_t>& payload, std::int32_t value) {
-    const std::uint32_t networkValue{htonl(static_cast<std::uint32_t>(value))};
-    // Take a pointer to the start of the integer.
-    const auto* bytes{reinterpret_cast<const std::uint8_t*>(&networkValue)};
-    // Copy 4 bytes from where the pointer begins into the payload vector.
-    payload.insert(payload.end(), bytes, bytes + sizeof(networkValue));
-    return true;
-}
-
-// Encode a length-prefixed string and append it to a byte buffer.
-bool appendString(std::vector<std::uint8_t>& payload, const std::string& value) {
-    if (value.size() > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
-        return false;
-    }
-
-    // Append the string length.
-    appendInt32(payload, static_cast<std::int32_t>(value.size()));
-    // Copy the bytes of the string to the buffer.
-    payload.insert(payload.end(), value.begin(), value.end());
-    return true;
-}
-
 // Builds a payload consisting solely of an opcode.
 std::vector<std::uint8_t> buildStatusResponse(ResponseOpcode opcode) {
     return {static_cast<std::uint8_t>(opcode)};
