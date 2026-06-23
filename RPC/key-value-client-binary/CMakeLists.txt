@@ -10,7 +10,7 @@ set(SOURCES
         src/SocketUtils.cpp
     src/types.cpp
         src/RemoteListStub.cpp
-        src/RemoteList.cpp
+        src/RemoteKeyValueStore.cpp
 )
 
 add_executable(list_client_binary ${SOURCES})

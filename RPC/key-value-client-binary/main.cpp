@@ -1,120 +1,65 @@
-#include "RemoteList.h"
+#include "RemoteKeyValueStore.h"
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <vector>
 
 void printMenu() {
     std::cout << "\n" << std::string(60, '=') << '\n';
     std::cout << "  Remote List Menu\n";
     std::cout << std::string(60, '=') << '\n';
-    std::cout << "  1) Add strings to list (PUSH)\n";
-    std::cout << "  2) Sort list using insertion sort\n";
+    std::cout << "  1) Add pairs to the store\n";
+    std::cout << "  2) Print store values\n";
     std::cout << "  0) Exit\n";
     std::cout << std::string(60, '=') << '\n';
 }
 
-void displayList(RemoteList& list) {
-    auto cnt = list.count();
-    if (!cnt.has_value()) {
-        std::cout << "  [Error getting list size]\n";
+void printKeys(RemoteKeyValueStore& store) {
+    auto keys = store.keys();
+    if (!keys.has_value()) {
         return;
     }
 
-    if (cnt.value() == 0) {
-        std::cout << "  [Empty list]\n";
-        return;
-    }
-
-    for (std::size_t i = 0; i < cnt.value(); ++i) {
-        auto val = list.get(i);
-        std::cout << "  [" << i << "] " << (val.has_value() ? val.value() : "[ERROR]") << '\n';
+    for (const auto& key : keys.value()) {
+        std::cout << key << "\n";
     }
 }
 
-void optionPush(RemoteList& list) {
-    std::cout << "\n--- Option 1: Add Strings to List ---\n";
-    std::cout << "Enter strings to add to the list (empty line to finish):\n";
-
+void optionAddPairs(RemoteKeyValueStore& store) {
     std::string line;
-    int count = 0;
 
-    while (true) {
-        std::cout << "  > ";
-        if (!std::getline(std::cin, line)) {
-            break;
-        }
+    while (std::getline(std::cin, line) && !line.empty()) {
+        std::istringstream input{line};
+        std::string key;
+        std::string value;
 
-        if (line.empty()) {
-            break;
-        }
-
-        if (list.push(line)) {
-            count++;
-            std::cout << "    Added: " << line << '\n';
-        } else {
-            std::cout << "    Failed to push: " << line << '\n';
+        input >> key >> value;
+        if (!key.empty() && !value.empty()) {
+            store.put(key, value);
         }
     }
-
-    std::cout << "\nAdded " << count << " items to the list.\n";
-    std::cout << "\nCurrent list contents:\n";
-    displayList(list);
+    printKeys(store);
 }
 
-void optionSortInsertionSort(RemoteList& list) {
-    std::cout << "\n--- Option 2: Sort List (Insertion Sort) ---\n";
-
-    auto cnt = list.count();
-    if (!cnt.has_value()) {
-        std::cout << "Error: Could not get list size\n";
+void optionPrintValues(RemoteKeyValueStore& store) {
+    auto keys = store.keys();
+    if (!keys.has_value()) {
         return;
     }
+    std::vector<std::string> values{};
 
-    std::size_t n = cnt.value();
-    if (n == 0) {
-        std::cout << "List is empty, nothing to sort.\n";
-        return;
-    }
-
-    std::cout << "Sorting " << n << " items using insertion sort...\n";
-
-    for (std::size_t i = 1; i < n; ++i) {
-        auto key = list.get(i);
-        if (!key.has_value()) {
-            std::cout << "Error reading element at index " << i << '\n';
-            return;
-        }
-
-        std::string keyValue = key.value();
-        std::size_t j = i;
-
-        while (j > 0) {
-            auto prev = list.get(j - 1);
-            if (!prev.has_value()) {
-                std::cout << "Error reading element at index " << (j - 1) << '\n';
-                return;
-            }
-
-            if (prev.value() > keyValue) {
-                if (!list.set(j, prev.value())) {
-                    std::cout << "Error setting element at index " << j << '\n';
-                    return;
-                }
-                j--;
-            } else {
-                break;
-            }
-        }
-
-        if (!list.set(j, keyValue)) {
-            std::cout << "Error setting element at index " << j << '\n';
-            return;
+    for (const auto& key : keys.value()) {
+        auto value = store.get(key);
+        if (value.has_value()) {
+            values.push_back(value.value());
         }
     }
+    std::sort(values.begin(), values.end());
 
-    std::cout << "Sorting complete!\n";
-    std::cout << "\nSorted list contents:\n";
-    displayList(list);
+    for (const auto& value : values) {
+        std::cout << value << "\n";
+    }
 }
 
 int main() {
@@ -124,7 +69,7 @@ int main() {
         std::cout << std::string(60, '=') << '\n';
         std::cout << "\nConnecting to server at 127.0.0.1:9090...\n";
 
-        RemoteList list("127.0.0.1", 9090);
+        RemoteKeyValueStore store("127.0.0.1", 9090);
         std::cout << "Connected!\n";
 
         int choice = -1;
@@ -139,10 +84,10 @@ int main() {
                     std::cout << "\nGoodbye!\n\n";
                     break;
                 case 1:
-                    optionPush(list);
+                    optionAddPairs(store);
                     break;
                 case 2:
-                    optionSortInsertionSort(list);
+                    optionPrintValues(store);
                     break;
                 default:
                     std::cout << "\nInvalid choice. Please enter 0, 1, or 2.\n";

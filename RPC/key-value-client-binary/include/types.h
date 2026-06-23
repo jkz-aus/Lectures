@@ -8,24 +8,22 @@
 #include <vector>
 
 enum class RequestOpcode : std::uint8_t {
-    Push = 1,
-    Pop = 2,
-    Insert = 3,
-    Remove = 4,
-    Count = 5,
-    Get = 6,
-    Set = 7,
-    Swap = 8,
-    Clear = 9,
-    Quit = 10
+    Put = 0x01,
+    Delete = 0x03,
+    Count = 0x05,
+    Get = 0x06,
+    Exists = 0x07,
+    Keys = 0x08,
+    Quit = 0x0A
 };
 
 enum class ResponseOpcode : std::uint8_t {
-    Ok = 64,
-    Value = 65,
-    Count = 66,
-    Bye = 67,
-    Error = 127
+    Ok = 0x40,
+    Value = 0x41,
+    Count = 0x42,
+    Keys = 0x43,
+    Bye = 0x45,
+    Error = 0x7F
 };
 
 struct BinaryResponse {
@@ -45,4 +43,5 @@ std::optional<std::size_t> parseCountResponse(const BinaryResponse& response);
 bool isErrorResponse(const BinaryResponse& response);
 std::string getErrorMessage(const BinaryResponse& response);
 
+std::optional<std::vector<std::string>> parseKeysResponse (const BinaryResponse& response);
 #endif // TYPES_H

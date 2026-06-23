@@ -101,7 +101,7 @@ std::vector<std::uint8_t> handleKeysRequest(MessageReader& reader, SharedStore& 
     }
     std::sort(keys.begin(), keys.end());
     
-    return buildKeysDResponse(keys);
+    return buildKeysResponse(keys);
 }
 
 //quit

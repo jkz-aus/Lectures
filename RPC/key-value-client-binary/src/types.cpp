@@ -143,3 +143,30 @@ std::string getErrorMessage(const BinaryResponse& response) {
 
     return message.value();
 }
+
+std::optional<std::vector<std::string>> parseKeysResponse(const BinaryResponse& response) {
+    if (response.opcode != ResponseOpcode::Keys) {
+        return std::nullopt;
+    }
+
+    MessageReader reader{response.payload};
+
+    auto count{reader.readInt32()};
+    if (!count.has_value() || count.value() < 0) {
+        return std::nullopt;
+    }
+
+    std::vector<std::string> keys{};
+
+    for (int i = 0; i < count.value(); i++) {
+        auto key{reader.readString()};
+        if (!key.has_value()) {
+            return std::nullopt;
+        }
+        keys.push_back(key.value());
+    }
+    if (!reader.isAtEnd()) {
+        return std::nullopt;
+    }
+    return keys;
+}
