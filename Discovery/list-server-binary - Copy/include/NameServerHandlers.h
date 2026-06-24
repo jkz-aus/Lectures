@@ -21,7 +21,6 @@ enum class NameServerResponseOpcode : std::uint8_t {
 std::vector<std::uint8_t> buildRegisterRequest(const std::string& serviceName,
     const std::string& providerId, const std::string& address, std::int32_t port);
 
-// TODO: you must implement this function to build a payload for a Heartbeat request.
 // The Heartbeat opcode expects two string arguments: the service name, and the provider identifier.
 // See the implementation of buildRegisterRequest for an example.
 std::vector<std::uint8_t> buildHeartbeatRequest(const std::string& serviceName,
